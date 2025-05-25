@@ -25,6 +25,10 @@ const vocabList = [
   { word: '大', pinyin: 'da', english: 'big', level: 1, pos: 'adjective' },
   { word: '小', pinyin: 'xiao', english: 'small', level: 1, pos: 'adjective' },
   { word: '忙', pinyin: 'mang', english: 'busy', level: 1, pos: 'adjective' },
+  { word: '很', pinyin: 'hen', english: 'very', level: 1, pos: 'adverb' },
+  { word: '也', pinyin: 'ye', english: 'also, too', level: 1, pos: 'adverb' },
+  { word: '啊', pinyin: 'a', english: 'ah', level: 1, pos: 'interjection' },
+  { word: '喂', pinyin: 'wei', english: 'hello', level: 1, pos: 'interjection' },
 
   // HSK 2 vocabulary
   { word: '因为', pinyin: 'yinwei', english: 'because', level: 2, pos: 'conjunction' },
