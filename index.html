@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hanzi Commander</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    body {
+      text-align: center;
+      background: linear-gradient(135deg, #000, #111);
+      color: cyan;
+      font-family: 'Press Start 2P', cursive;
+      margin: 0;
+      padding: 10px;
+      overflow: hidden;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    /* Game container centered and with fixed maximum width */
+    #gameContainer {
+      position: relative;
+      margin: 0 auto;
+      max-width: 600px;
+      background: #222;
+    }
+    @media screen and (max-width: 600px) {
+      #gameContainer {
+        padding-bottom: 100px;
+      }
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 2px solid cyan;
+      box-shadow: 0 0 10px cyan, 0 0 20px cyan;
+    }
+    /* Updated input box: added a console-style font */
+    #pinyinInput {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      max-width: 300px;
+      padding: 10px;
+      font-size: 16px;
+      font-family: "Courier New", Courier, monospace;
+      text-align: center;
+      border: 2px solid cyan;
+      background: #000;
+      color: cyan;
+      display: none;
+      z-index: 10;
+    }
+    #mobileControls {
+      display: none;
+    }
+    @media screen and (max-width: 600px) {
+      #mobileControls {
+        display: flex;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: #000;
+        padding: 10px;
+        box-sizing: border-box;
+        z-index: 20;
+        align-items: center;
+      }
+      #aButton {
+        margin-right: auto;
+        flex: 0 0 auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #lrControls {
+        display: flex;
+        gap: 20px;
+      }
+      #mobileControls button {
+        font-family: 'Press Start 2P', cursive;
+        font-size: 22px;
+        padding: 15px;
+        background: #000;
+        color: cyan;
+        border: 2px solid cyan;
+        border-radius: 8px;
+        flex: 0 0 auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        transition: background-color 0.1s, border-color 0.1s;
+      }
+      #mobileControls button.active {
+        background-color: #ffff33;
+        border-color: #ffff33;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Hanzi Commander</h1>
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="600" height="500"></canvas>
+    <input type="text" id="pinyinInput" placeholder="Type pinyin & press Enter">
+    <div id="mobileControls">
+      <button id="aButton">A</button>
+      <div id="lrControls">
+        <button id="leftButton">←</button>
+        <button id="rightButton">→</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vocab.js"></script>
+
+  <script>
+    // Create a single shared AudioContext.
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Simple shoot sound: a short square wave beep.
+    function playShootSound() {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 440; // A4 note
+      gain.gain.value = 0.033;   // Reduced volume (a third quieter)
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      setTimeout(() => osc.stop(), 100);
+    }
+
+    // Simple explosion sound: burst of white noise with decay.
+    function playExplosionSound() {
+      const bufferSize = audioCtx.sampleRate * 0.2; // 0.2 second buffer
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.033;   // Reduced volume
+      noise.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start();
+    }
+
+    // Simple reload sound: an ascending sawtooth chirp.
+    function playReloadSound() {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 300; // Start frequency
+      gain.gain.value = 0.033;   // Reduced volume
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      let now = audioCtx.currentTime;
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.linearRampToValueAtTime(600, now + 0.3);
+      setTimeout(() => osc.stop(), 300);
+    }
+  </script>
+
+  <script>
+    // Helper: Wrap text into multiple lines if it exceeds maxWidth.
+    function wrapText(context, text, x, y, maxWidth, lineHeight) {
+      let words = text.split(' ');
+      if (words.length === 1 && text.length > 1 && !text.includes(' ')) { // Check if it might be Chinese text without spaces
+        if (/[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text)) { // Check for CJK characters
+            words = text.split('');
+        }
+      }
+      let line = '';
+      let lines = [];
+      for (let i = 0; i < words.length; i++) {
+        let testLine = (line === '' ? '' : line + (text.includes(' ') ? ' ' : '')) + words[i]; // Add space only if original text had them
+        if (context.measureText(testLine).width > maxWidth && line !== '') {
+          lines.push(line);
+          line = words[i];
+        } else {
+          line = testLine;
+        }
+      }
+      lines.push(line);
+
+      for (let i = 0; i < lines.length; i++) {
+        context.fillText(lines[i], x, y + i * lineHeight);
+      }
+    }
+
+    // Global variables for reload target management.
+    let lastHitEnemy = null;       // The enemy that was last hit.
+    let reloadEnemy = null;        // The enemy to ask for pinyin during reload.
+    let failedReloadEnemy = null;  // Enemy to recur in the next round if not answered correctly.
+
+    // Other globals.
+    let enemyBombs = [];
+    let barriers = [];
+    let bombCooldown = 0;
+    let reloadSuccessMessage = "";
+    let reloadSuccessTimer = 0;
+
+    // Use vocabulary from vocab.js
+    const ankiWords = hanziWordsArray; // Assuming hanziWordsArray is defined in vocab.js
+
+    // NEW: Variables for win condition and counter
+    let correctWordsCount = 0;
+    let totalWordsInSet = 0;
+    let correctlyAnsweredWords = new Set(); // To store unique hanzi of correctly answered words
+    let gameWon = false; // New game state for winning
+
+    const canvasElement = document.getElementById("gameCanvas");
+    canvasElement.tabIndex = 0;
+    const context = canvasElement.getContext("2d");
+    const inputBox = document.getElementById("pinyinInput");
+    window.onload = () => { canvasElement.focus(); };
+
+    const keys = {};
+
+    let player, bullets, invaders, ammo, score, gameOver, level, enemySpeed, direction, gameStarted;
+    let pausedForReload = false;
+    let expectedPinyinValue = "";
+    let expectedEnglishValue = "";
+    let reloadRow = null;
+    let reloadHanziValue = "";
+    let reloadAttempts = 0;
+    let autoAcceptShown = false;
+
+    // When a bullet hits an enemy, record that enemy.
+    function recordHitEnemy(enemy) {
+      lastHitEnemy = enemy;
+    }
+
+    function resetGame() {
+      player = { x: 270, y: 450, width: 50, height: 20, speed: 6 };
+      bullets = [];
+      invaders = [];
+      enemyBombs = [];
+      score = 0;
+      gameOver = false;
+      gameWon = false; // NEW: Reset win state
+      level = 1;
+      enemySpeed = 0.2;
+      direction = 1;
+      // gameStarted will be set by the start screen logic
+      pausedForReload = false;
+      expectedPinyinValue = "";
+      expectedEnglishValue = "";
+      reloadRow = null;
+      reloadHanziValue = "";
+      reloadAttempts = 0;
+      autoAcceptShown = false;
+      reloadSuccessMessage = "";
+      reloadSuccessTimer = 0;
+      inputBox.style.display = "none";
+      inputBox.value = ""; // Clear input box
+      ammo = 15;
+      bombCooldown = 0;
+      barriers = [];
+      for (let i = 0; i < 4; i++) {
+        let x = 50 + i * 130;
+        let y = canvasElement.height - 150;
+        barriers.push({ x: x, y: y, width: 60, height: 30, hp: 4, flashTime: 0 });
+      }
+      lastHitEnemy = null;
+      reloadEnemy = null;
+      // failedReloadEnemy is retained to recur next round.
+
+      // NEW: Reset correct words tracking
+      correctWordsCount = 0;
+      correctlyAnsweredWords.clear();
+      // Calculate total unique words (assuming 'word' property is the unique Hanzi identifier)
+      if (typeof hanziWordsArray !== 'undefined' && hanziWordsArray.length > 0) {
+        const uniqueWords = new Set(hanziWordsArray.map(item => item.word));
+        totalWordsInSet = uniqueWords.size;
+      } else {
+        totalWordsInSet = 0; // Handle case where vocab might be empty or undefined
+        console.warn("hanziWordsArray is empty or not defined. Win condition might not work as expected.");
+      }
+    }
+
+    function createInvaders() {
+      invaders = [];
+      if (typeof hanziWordsArray === 'undefined' || hanziWordsArray.length === 0) {
+          console.error("Cannot create invaders: hanziWordsArray is empty or not defined.");
+          gameOver = true; 
+          return;
+      }
+      let rowWords = [];
+      const availableUniqueWords = Array.from(new Set(hanziWordsArray.map(w => w.word)))
+                                      .map(uw => hanziWordsArray.find(aw => aw.word === uw));
+
+      if (availableUniqueWords.length < 3 && availableUniqueWords.length > 0) {
+        for(let i=0; i<3; i++) {
+            rowWords.push(availableUniqueWords[i % availableUniqueWords.length]);
+        }
+      } else if (availableUniqueWords.length >= 3) {
+         while (rowWords.length < 3) {
+            let randIndex = Math.floor(Math.random() * availableUniqueWords.length);
+            let candidate = availableUniqueWords[randIndex];
+            if (!rowWords.some(w => w.word === candidate.word)) {
+                rowWords.push(candidate);
+            }
+         }
+      } else { 
+          console.error("No words available to create invaders.");
+          gameOver = true;
+          return;
+      }
+
+
+      const rowColors = ["magenta", "yellow", "cyan"];
+      for (let row = 0; row < 3; row++) {
+        for (let i = 0; i < 5; i++) {
+          invaders.push({
+            x: i * 100 + 50,
+            y: row * 50 + 50,
+            width: 50,
+            height: 30,
+            word: rowWords[row].word,
+            pinyin: rowWords[row].pinyin,
+            english: rowWords[row].english,
+            hit: false,
+            row: row,
+            color: rowColors[row]
+          });
+        }
+      }
+      if (failedReloadEnemy && !invaders.some(inv => inv.word === failedReloadEnemy.word)) {
+        failedReloadEnemy.hit = false;
+        invaders.push(failedReloadEnemy);
+        failedReloadEnemy = null;
+      }
+    }
+
+    function drawPlayer() {
+      context.fillStyle = "lime";
+      context.fillRect(player.x, player.y, player.width, player.height);
+    }
+
+    function drawBullets() {
+      context.fillStyle = "red";
+      bullets.forEach(bullet => {
+        context.fillRect(bullet.x, bullet.y, 5, 10);
+        bullet.y -= 5;
+      });
+      bullets = bullets.filter(bullet => bullet.y > 0);
+    }
+
+    function drawInvaders() {
+      context.font = "30px 'Press Start 2P', cursive";
+      context.textAlign = "center";
+      for (let i = invaders.length - 1; i >= 0; i--) {
+        let invader = invaders[i];
+        if (invader.hit) {
+          if (invader.hitTimer > 0) {
+            context.fillStyle = (Math.floor(invader.hitTimer / 5) % 2 === 0) ? "yellow" : "white";
+            invader.hitTimer--;
+          } else {
+            invaders.splice(i, 1);
+            continue;
+          }
+        } else {
+          context.fillStyle = invader.color;
+        }
+        context.fillText(invader.word, invader.x, invader.y);
+      }
+      context.textAlign = "left";
+    }
+
+    // THIS FUNCTION IS THE ONLY ONE MODIFIED FROM THE PREVIOUS FULL CODEBLOCK
+    function drawUI() {
+      context.fillStyle = "cyan";
+      context.font = "16px 'Press Start 2P', cursive";
+      context.textAlign = "left";
+      context.fillText(`Score: ${score}`, 20, 30); // Top-left
+
+      context.textAlign = "center";
+      context.fillText(`Level: ${level}`, canvasElement.width / 2, 30); // Top-center
+
+      context.textAlign = "left"; // Reset for ammo
+      context.fillText(`Ammo: ${ammo}`, 20, 50); // Second row - left
+
+      // Display Correct Words Counter - Y coordinate changed to 50
+      context.textAlign = "right"; // Align to the right
+      if (totalWordsInSet > 0) {
+           context.fillText(`Correct: ${correctWordsCount}/${totalWordsInSet}`, canvasElement.width - 20, 50); // Second row - right
+      } else {
+           context.fillText(`Correct: ${correctWordsCount}/N/A`, canvasElement.width - 20, 50); // Second row - right
+      }
+      context.textAlign = "left"; // Reset alignment for any subsequent text (if any)
+    }
+
+    function shoot() {
+      if (ammo > 0 && !pausedForReload) {
+        bullets.push({ x: player.x + player.width / 2 - 2.5, y: player.y, width: 5, height: 10, active: true });
+        ammo--;
+        playShootSound();
+      }
+    }
+
+    function checkCollisions() {
+      bullets.forEach(bullet => {
+        if (!bullet.active) return;
+        invaders.forEach(invader => {
+          let left = invader.x - (invader.width / 2);
+          let right = invader.x + (invader.width / 2);
+          if (!invader.hit &&
+              bullet.x < right &&
+              bullet.x + bullet.width > left &&
+              bullet.y < invader.y + invader.height && 
+              bullet.y + bullet.height > invader.y - invader.height/2) { 
+            invader.hit = true;
+            invader.hitTimer = 60;
+            bullet.active = false;
+            recordHitEnemy(invader); 
+            score += 5; 
+            playExplosionSound();
+          }
+        });
+      });
+      bullets = bullets.filter(bullet => bullet.active && bullet.y > 0);
+    }
+
+    function updateBombs() {
+      enemyBombs.forEach(bomb => { bomb.y += bomb.speed; });
+      enemyBombs = enemyBombs.filter(bomb => bomb.y < canvasElement.height);
+    }
+
+    function checkBulletBarrierCollisions() {
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        let bullet = bullets[i];
+        barriers.forEach(barrier => {
+          if (barrier.hp > 0 &&
+              bullet.x < barrier.x + barrier.width &&
+              bullet.x + 5 > barrier.x &&
+              bullet.y < barrier.y + barrier.height &&
+              bullet.y + 10 > barrier.y) {
+            barrier.hp--;
+            barrier.flashTime = performance.now();
+            bullets.splice(i, 1);
+          }
+        });
+      }
+    }
+
+    function checkBombBarrierCollisions() {
+      for (let i = enemyBombs.length - 1; i >= 0; i--) {
+        let bomb = enemyBombs[i];
+        barriers.forEach(barrier => {
+          if (barrier.hp > 0 &&
+              bomb.x < barrier.x + barrier.width &&
+              bomb.x + bomb.width > barrier.x &&
+              bomb.y < barrier.y + barrier.height &&
+              bomb.y + bomb.height > barrier.y) {
+            barrier.hp--;
+            barrier.flashTime = performance.now();
+            enemyBombs.splice(i, 1);
+          }
+        });
+      }
+    }
+
+    function checkBombPlayerCollision() {
+      enemyBombs.forEach(bomb => {
+        if (bomb.x < player.x + player.width &&
+            bomb.x + bomb.width > player.x &&
+            bomb.y < player.y + player.height &&
+            bomb.y + bomb.height > player.y) {
+          gameOver = true;
+        }
+      });
+    }
+
+    function drawBombs() {
+      context.fillStyle = "red";
+      context.font = "20px 'Press Start 2P', cursive";
+      enemyBombs.forEach(bomb => { context.fillText("*", bomb.x, bomb.y); });
+    }
+
+    function drawBarriers() {
+      let currentTime = performance.now();
+      barriers.forEach(barrier => {
+        if (barrier.hp > 0) {
+          if (currentTime - barrier.flashTime < 200) {
+            context.fillStyle = "red";
+          } else {
+            if (barrier.hp >= 4) context.fillStyle = "cyan";
+            else if (barrier.hp === 3) context.fillStyle = "lime";
+            else if (barrier.hp === 2) context.fillStyle = "yellow";
+            else context.fillStyle = "orange";
+          }
+          context.fillRect(barrier.x, barrier.y, barrier.width, barrier.height);
+        }
+      });
+      barriers = barriers.filter(barrier => barrier.hp > 0); 
+    }
+
+
+    function checkGameOver() {
+      invaders.forEach(inv => {
+        if (!inv.hit && inv.y >= player.y - inv.height) { 
+             gameOver = true;
+        }
+      });
+    }
+
+    function moveInvaders() {
+      if (pausedForReload) return;
+      let maxY = 0;
+      invaders.forEach(inv => { if (inv.y > maxY) maxY = inv.y; });
+      let multiplier = 1 + (maxY - 50) / 200; 
+      let moveDown = false;
+      invaders.forEach(invader => {
+        invader.x += enemySpeed * multiplier * direction;
+        if (invader.x > canvasElement.width - invader.width / 2 || invader.x < invader.width / 2) {
+            moveDown = true;
+        }
+      });
+      if (moveDown) {
+        direction *= -1;
+        invaders.forEach(invader => { invader.y += 10 * multiplier; }); 
+      }
+    }
+
+    function computeLowestRow() { // This function seems less used now, selectReloadEnemy is more direct
+      let lowest = -1;
+      let lowestY = -1;
+      invaders.forEach(inv => {
+          if (!inv.hit && inv.y > lowestY) {
+              lowestY = inv.y;
+          }
+      });
+      const lowestInvaders = invaders.filter(inv => !inv.hit && inv.y === lowestY);
+      if (lowestInvaders.length > 0) return lowestInvaders[Math.floor(Math.random() * lowestInvaders.length)];
+      
+      const availableInvaders = invaders.filter(inv => !inv.hit);
+      if (availableInvaders.length > 0) {
+        availableInvaders.sort((a,b) => b.y - a.y || Math.random() - 0.5); 
+        return availableInvaders[0];
+      }
+      return null;
+    }
+
+    function selectReloadEnemy() {
+      if (lastHitEnemy && !lastHitEnemy.hit && invaders.includes(lastHitEnemy)) { 
+        return lastHitEnemy;
+      }
+      let lowestNonHitInvader = null;
+      let maxY = -1;
+      invaders.forEach(inv => {
+          if (!inv.hit && inv.y > maxY) {
+              maxY = inv.y;
+              lowestNonHitInvader = inv;
+          }
+      });
+      if (lowestNonHitInvader) return lowestNonHitInvader;
+
+      const availableInvaders = invaders.filter(inv => !inv.hit);
+      if (availableInvaders.length > 0) {
+        return availableInvaders[Math.floor(Math.random() * availableInvaders.length)];
+      }
+      return null; 
+    }
+
+
+    function acceptReload() {
+      let attempts = reloadAttempts;
+      let currentReloadEnemyWord = reloadHanziValue; 
+      let currentPinyin = expectedPinyinValue;
+      let currentEnglish = expectedEnglishValue;
+
+      if (attempts < 3) { 
+        if (reloadEnemy) {
+            reloadEnemy.hit = true; 
+            reloadEnemy.hitTimer = 60; 
+        }
+        score += 10;
+        if (!correctlyAnsweredWords.has(currentReloadEnemyWord)) {
+          correctlyAnsweredWords.add(currentReloadEnemyWord);
+          correctWordsCount++;
+        }
+        reloadSuccessMessage = `Correct! ${currentReloadEnemyWord} (${currentPinyin}) - ${currentEnglish}`;
+      } else { 
+        if (reloadEnemy) {
+             failedReloadEnemy = reloadEnemy; 
+        }
+        reloadSuccessMessage = `Answer: ${currentReloadEnemyWord} (${currentPinyin}) - ${currentEnglish}`;
+      }
+
+      enemyBombs = []; 
+      bombCooldown = performance.now() + 1000; 
+      ammo = 15;
+      pausedForReload = false;
+      reloadAttempts = 0;
+      autoAcceptShown = false;
+      inputBox.value = "";
+      inputBox.style.display = "none";
+      canvasElement.focus();
+
+      reloadSuccessTimer = performance.now();
+      if ('speechSynthesis' in window && currentReloadEnemyWord) {
+        let utterance = new SpeechSynthesisUtterance(currentReloadEnemyWord);
+        utterance.lang = 'zh-CN';
+        window.speechSynthesis.speak(utterance);
+      }
+      playReloadSound();
+
+      if (totalWordsInSet > 0 && correctWordsCount >= totalWordsInSet) {
+        gameWon = true;
+      }
+
+      expectedPinyinValue = "";
+      expectedEnglishValue = "";
+      reloadHanziValue = "";
+      reloadEnemy = null; 
+      lastHitEnemy = null; 
+    }
+
+    function update() {
+      context.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (!gameStarted) {
+        context.fillStyle = "cyan";
+        context.font = "20px 'Press Start 2P', cursive";
+        context.textAlign = "center";
+        context.fillText("Press ENTER (or A) to Start", canvasElement.width / 2, canvasElement.height / 2);
+        requestAnimationFrame(update);
+        return;
+      }
+
+      if (gameWon) {
+        inputBox.style.display = "none";
+        context.fillStyle = "gold";
+        context.font = "24px 'Press Start 2P', cursive";
+        context.textAlign = "center";
+        wrapText(context, "!!! YOU WIN !!!", canvasElement.width / 2, canvasElement.height / 2 - 60, canvasElement.width - 40, 30);
+        context.font = "20px 'Press Start 2P', cursive";
+        wrapText(context, "All Hanzi Mastered!", canvasElement.width / 2, canvasElement.height / 2 - 10, canvasElement.width - 40, 26);
+        wrapText(context, `Final Score: ${score}`, canvasElement.width / 2, canvasElement.height / 2 + 30, canvasElement.width - 40, 26);
+        wrapText(context, "Press ENTER (or A) to Play Again", canvasElement.width / 2, canvasElement.height / 2 + 70, canvasElement.width - 40, 26);
+        requestAnimationFrame(update);
+        return;
+      }
+
+      if (gameOver) {
+        inputBox.style.display = "none";
+        context.fillStyle = "red";
+        context.font = "20px 'Press Start 2P', cursive";
+        context.textAlign = "center";
+        wrapText(context, "GAME OVER", canvasElement.width / 2, canvasElement.height / 2 - 20, canvasElement.width - 40, 26);
+        wrapText(context, `Final Score: ${score}`, canvasElement.width / 2, canvasElement.height / 2 + 10, canvasElement.width - 40, 26);
+        wrapText(context, "Press ENTER (or A) to Restart", canvasElement.width / 2, canvasElement.height / 2 + 40, canvasElement.width - 40, 26);
+        requestAnimationFrame(update);
+        return;
+      }
+
+      if (ammo === 0 && !pausedForReload && invaders.filter(inv => !inv.hit).length > 0) { 
+        pausedForReload = true;
+        reloadEnemy = selectReloadEnemy(); 
+        if (reloadEnemy) {
+          expectedPinyinValue = reloadEnemy.pinyin.toLowerCase(); 
+          expectedEnglishValue = reloadEnemy.english;
+          reloadHanziValue = reloadEnemy.word;
+          inputBox.style.display = "block";
+          inputBox.focus();
+        } else {
+          ammo = 5; 
+          pausedForReload = false;
+        }
+        reloadAttempts = 0;
+        autoAcceptShown = false;
+      }
+
+
+      if (pausedForReload) {
+        drawPlayer();
+        drawBullets(); 
+        drawInvaders(); 
+        drawBarriers(); 
+        drawUI();       
+        context.fillStyle = "yellow";
+        context.textAlign = "center";
+        context.font = "20px 'Press Start 2P', cursive";
+        if (reloadHanziValue) { 
+             wrapText(context, "RELOAD: Type pinyin for", canvasElement.width / 2, canvasElement.height / 2 - 30, canvasElement.width - 40, 24);
+             context.font = "30px 'Press Start 2P', cursive";
+             context.fillText(reloadHanziValue, canvasElement.width / 2, canvasElement.height / 2 + 10);
+        } else {
+             wrapText(context, "No target for reload...", canvasElement.width / 2, canvasElement.height / 2 - 10, canvasElement.width - 40, 24);
+        }
+        requestAnimationFrame(update);
+        return;
+      }
+
+      if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
+      if (keys["ArrowRight"] && player.x < canvasElement.width - player.width) player.x += player.speed;
+      
+      drawPlayer();
+      drawBullets();
+      drawInvaders();
+      drawUI();
+      moveInvaders();
+      checkCollisions();
+
+      updateBombs();
+      checkBulletBarrierCollisions();
+      checkBombBarrierCollisions();
+      checkBombPlayerCollision();
+      drawBombs();
+      drawBarriers();
+
+      checkGameOver(); 
+
+      if (!gameOver && invaders.length === 0 && !pausedForReload) { 
+        level++;
+        enemySpeed += 0.01;
+        enemyBombs = []; 
+        createInvaders(); 
+      }
+
+
+      if (reloadSuccessMessage !== "") {
+        let now = performance.now();
+        if (now - reloadSuccessTimer < 2000) { 
+          context.fillStyle = "lightgreen";
+          let fontSize = Math.min(20, Math.floor((canvasElement.width - 40) / reloadSuccessMessage.length * 1.2)); 
+          fontSize = Math.max(10, fontSize); 
+          context.font = fontSize + "px 'Press Start 2P', cursive";
+          context.textAlign = "center";
+          let maxWidth = canvasElement.width - 40;
+          wrapText(context, reloadSuccessMessage, canvasElement.width / 2, canvasElement.height / 2 + 50, maxWidth, fontSize + 4);
+        } else {
+          reloadSuccessMessage = "";
+        }
+      }
+
+      if (performance.now() > bombCooldown && !pausedForReload && invaders.length > 0) {
+        let availableInvaders = invaders.filter(inv => !inv.hit);
+        if (availableInvaders.length > 0 && Math.random() < (0.005 + Math.min((Math.max(0, (Math.max(...availableInvaders.map(inv => inv.y)) - 50) / 350)), 1) * 0.015)) {
+          let dropper = availableInvaders[Math.floor(Math.random() * availableInvaders.length)];
+          enemyBombs.push({ x: dropper.x, y: dropper.y + 20, width: 5, height: 10, speed: 2 + level * 0.1 });
+          bombCooldown = performance.now() + Math.max(200, 1000 - level * 50); 
+        }
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    function handleEnterAction() {
+        if (audioCtx.state === "suspended") { audioCtx.resume(); }
+
+        if (gameWon) {
+            resetGame(); 
+            createInvaders();
+            gameStarted = true;
+            canvasElement.focus();
+        } else if (gameOver) {
+            resetGame(); 
+            createInvaders();
+            gameStarted = true;
+            canvasElement.focus();
+        } else if (!gameStarted) {
+            resetGame(); 
+            createInvaders();
+            gameStarted = true;
+            canvasElement.focus();
+        } else if (!pausedForReload) { 
+            shoot();
+        }
+    }
+
+
+    function addControlListeners(btn, keyName) {
+      btn.addEventListener("pointerdown", function(e) {
+        e.preventDefault(); 
+        btn.classList.add("active");
+        keys[keyName] = true;
+        if (keyName === "Enter") {
+          handleEnterAction();
+        }
+      });
+      btn.addEventListener("pointerup", function(e) {
+        e.preventDefault();
+        btn.classList.remove("active");
+        keys[keyName] = false;
+      });
+      btn.addEventListener("touchstart", function(e) {
+        e.preventDefault();
+        btn.classList.add("active");
+        keys[keyName] = true;
+        if (keyName === "Enter") {
+          handleEnterAction();
+        }
+      });
+      btn.addEventListener("touchend", function(e) {
+        e.preventDefault();
+        btn.classList.remove("active");
+        keys[keyName] = false;
+      });
+      btn.addEventListener("mousedown", function(e) {
+        btn.classList.add("active");
+        keys[keyName] = true; 
+        if (keyName === "Enter") {
+          handleEnterAction(); 
+        }
+      });
+      btn.addEventListener("mouseup", function(e) {
+        btn.classList.remove("active");
+        keys[keyName] = false; 
+      });
+    }
+
+
+    addControlListeners(document.getElementById("leftButton"), "ArrowLeft");
+    addControlListeners(document.getElementById("rightButton"), "ArrowRight");
+    addControlListeners(document.getElementById("aButton"), "Enter"); 
+
+    document.addEventListener("keydown", (event) => {
+      if (!pausedForReload || gameOver || gameWon) {
+          keys[event.key] = true;
+      }
+
+      if (event.key === "Enter") {
+        if (pausedForReload && inputBox.style.display === "block") {
+          return;
+        }
+        handleEnterAction();
+      }
+      if (event.key === " " && !pausedForReload && gameStarted && !gameOver && !gameWon) { 
+        shoot();
+        event.preventDefault(); 
+      }
+    });
+
+    document.addEventListener("keyup", (event) => {
+        keys[event.key] = false;
+    });
+
+    inputBox.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && pausedForReload) {
+        event.preventDefault(); 
+        let typed = inputBox.value.trim().toLowerCase();
+        if (typed === expectedPinyinValue) { 
+          acceptReload();
+        } else {
+          reloadAttempts++;
+          score = Math.max(0, score - 5); 
+
+          if (reloadEnemy && invaders.includes(reloadEnemy) && !reloadEnemy.hit) {
+            // Target is still valid
+          } else { 
+            let newTarget = selectReloadEnemy();
+            if (newTarget) {
+                reloadEnemy = newTarget;
+                expectedPinyinValue = newTarget.pinyin.toLowerCase();
+                expectedEnglishValue = newTarget.english;
+                reloadHanziValue = newTarget.word;
+            } else { 
+                pausedForReload = false; 
+                inputBox.style.display = "none";
+                ammo = 5; 
+                return;
+            }
+          }
+
+          if (reloadAttempts >= 3 && !autoAcceptShown) {
+            score = Math.max(0, score - 15); 
+            autoAcceptShown = true; 
+            acceptReload();
+          } else if (reloadAttempts < 3) {
+            inputBox.value = ""; 
+            inputBox.style.borderColor = "red";
+            setTimeout(() => { inputBox.style.borderColor = "cyan"; }, 200);
+          }
+        }
+      }
+    });
+
+    resetGame(); 
+    update();    
+  </script>
+</body>
+</html>
