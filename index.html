@@ -101,7 +101,8 @@
     }
     /* Retro styling for start menu controls */
     #startMenu select,
-    #startMenu button {
+    #startMenu button,
+    #highScoresOverlay button {
       font-family: 'Press Start 2P', cursive;
       font-size: 14px;
       padding: 10px;
@@ -109,6 +110,29 @@
       color: cyan;
       border: 2px solid cyan;
       border-radius: 4px;
+    }
+
+    #highScoresOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 40;
+    }
+
+    #highScoresOverlay ol {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 10px 0;
+      color: cyan;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 16px;
     }
   </style>
 </head>
@@ -150,11 +174,20 @@
           </select>
         </div>
         <button id="startButton">Start</button>
+        <button id="scoresButton" style="margin-left:10px;">High Scores</button>
+      </div>
+    </div>
+    <div id="highScoresOverlay">
+      <div style="background:#111;padding:20px;border:2px solid cyan;">
+        <h2 style="margin-top:0;margin-bottom:10px;color:cyan;font-size:20px;">High Scores</h2>
+        <ol id="scoreList"></ol>
+        <button id="closeScores">Back</button>
       </div>
     </div>
   </div>
 
   <script src="vocab.js"></script>
+  <script src="high_scores.js"></script>
 
   <script>
     // Create a single shared AudioContext.
@@ -263,7 +296,20 @@
     const hskSelect = document.getElementById("hskSelect");
     const posSelect = document.getElementById("posSelect");
     const startButton = document.getElementById("startButton");
-    window.onload = () => { canvasElement.focus(); };
+    const scoresButton = document.getElementById("scoresButton");
+    const highScoresOverlay = document.getElementById("highScoresOverlay");
+    const closeScores = document.getElementById("closeScores");
+    const scoreList = document.getElementById("scoreList");
+    window.onload = () => { canvasElement.focus(); renderHighScores(); };
+
+    let highScores = [];
+    try {
+      highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+    } catch (e) { highScores = []; }
+    if (typeof savedHighScores !== 'undefined' && highScores.length === 0) {
+      highScores = savedHighScores.slice();
+    }
+    let scoreRecorded = false;
 
     const keys = {};
 
@@ -280,6 +326,48 @@
     let currentHSKLevel = 1;
     let selectedPOS = "all";
     let awaitingNextHSK = false;
+
+    function renderHighScores() {
+      scoreList.innerHTML = "";
+      highScores.forEach(s => {
+        const li = document.createElement("li");
+        li.textContent = `${s.name}: ${s.score}`;
+        scoreList.appendChild(li);
+      });
+    }
+
+    function saveScores() {
+      localStorage.setItem("highScores", JSON.stringify(highScores));
+    }
+
+    function downloadScores() {
+      const data = "var savedHighScores = " + JSON.stringify(highScores, null, 2) + ";";
+      const blob = new Blob([data], { type: "application/javascript" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "high_scores.js";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function addHighScore(name, sc) {
+      highScores.push({ name: name, score: sc });
+      highScores.sort((a,b) => b.score - a.score);
+      highScores = highScores.slice(0,10);
+      saveScores();
+      renderHighScores();
+      downloadScores();
+    }
+
+    function recordScore() {
+      if (scoreRecorded) return;
+      const name = prompt("Name?", "AAA");
+      if (name) {
+        addHighScore(name.substring(0,10), score);
+      }
+      scoreRecorded = true;
+    }
     // When a bullet hits an enemy, record that enemy.
     function startGameFromMenu() {
       const sel = hskSelect.value;
@@ -288,6 +376,7 @@
       currentHSKLevel = sequentialHSK ? 1 : parseInt(sel, 10);
       hanziWordsArray = getVocab(currentHSKLevel, selectedPOS);
       startMenu.style.display = "none";
+      highScoresOverlay.style.display = "none";
       resetGame();
       createInvaders();
       gameStarted = true;
@@ -322,6 +411,7 @@
       inputBox.value = ""; // Clear input box
       ammo = 15;
       bombCooldown = 0;
+      scoreRecorded = false;
       barriers = [];
       for (let i = 0; i < 4; i++) {
         let x = 50 + i * 130;
@@ -827,9 +917,11 @@
             gameStarted = true;
             canvasElement.focus();
         } else if (gameWon) {
+            recordScore();
             startMenu.style.display = "flex";
             gameStarted = false;
         } else if (gameOver) {
+            recordScore();
             startMenu.style.display = "flex";
             gameStarted = false;
         } else if (!gameStarted) {
@@ -883,8 +975,10 @@
 
     addControlListeners(document.getElementById("leftButton"), "ArrowLeft");
     addControlListeners(document.getElementById("rightButton"), "ArrowRight");
-    addControlListeners(document.getElementById("aButton"), "Enter"); 
+    addControlListeners(document.getElementById("aButton"), "Enter");
     startButton.addEventListener("click", startGameFromMenu);
+    scoresButton.addEventListener("click", () => { renderHighScores(); highScoresOverlay.style.display = "flex"; });
+    closeScores.addEventListener("click", () => { highScoresOverlay.style.display = "none"; });
 
     document.addEventListener("keydown", (event) => {
       if (!pausedForReload || gameOver || gameWon) {
