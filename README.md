@@ -5,8 +5,8 @@
 
 ## 🎮 How to Play
 
-1. **Start the Game**  
-   Press **Enter** (or tap **A** on mobile) to begin.
+1. **Start the Game**
+   Choose an HSK level and part of speech from the menu, then press **Start**. Press **Enter** (or tap **A**) to begin immediately with the defaults.
 
 2. **Shoot Invaders**  
    - Use **← / →** or tap buttons to move.
@@ -28,10 +28,12 @@
 
 ## 🔤 Learning Focus
 
-The game uses a set of basic Chinese words defined in `vocab.js`. Each word includes:
-- **Hanzi** (Chinese character)
-- **Pinyin** (romanized pronunciation)
-- **English meaning**
+The game uses a set of Chinese words defined in `vocab.js`. Each entry specifies:
+ - **Hanzi** (Chinese character)
+ - **Pinyin** (romanized pronunciation)
+ - **English meaning**
+ - **HSK level** (1–3)
+ - **Part of speech**
 
 Sample vocabulary includes:
 - 我 *(wǒ)* — I, me  
@@ -73,7 +75,7 @@ No dependencies or build steps required.
 ## 🧠 Educational Use
 
 Hanzi Commander is perfect for:
-- Chinese language learners (HSK 1–2 level).
+- Chinese language learners (HSK 1–3 level).
 - Classrooms and personal study.
 - Anyone who wants to gamify their vocabulary drills.
 
