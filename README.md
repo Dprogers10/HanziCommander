@@ -5,8 +5,8 @@
 
 ## 🎮 How to Play
 
-1. **Start the Game**  
-   Press **Enter** (or tap **A** on mobile) to begin.
+1. **Start the Game**
+   Choose an HSK level and part of speech from the menu, then press **Start**. Press **Enter** (or tap **A**) to begin immediately with the defaults.
 
 2. **Shoot Invaders**  
    - Use **← / →** or tap buttons to move.
@@ -73,7 +73,7 @@ No dependencies or build steps required.
 ## 🧠 Educational Use
 
 Hanzi Commander is perfect for:
-- Chinese language learners (HSK 1–2 level).
+- Chinese language learners (HSK 1–3 level).
 - Classrooms and personal study.
 - Anyone who wants to gamify their vocabulary drills.
 
