@@ -94,10 +94,27 @@
         -webkit-tap-highlight-color: transparent;
         transition: background-color 0.1s, border-color 0.1s;
       }
-      #mobileControls button.active {
+    #mobileControls button.active {
         background-color: #ffff33;
         border-color: #ffff33;
       }
+    }
+
+    /* Retro styling for start menu controls */
+    #startMenu label,
+    #startMenu select,
+    #startMenu button {
+      font-family: 'Press Start 2P', cursive;
+      color: cyan;
+    }
+    #startMenu select,
+    #startMenu button {
+      background: #000;
+      border: 2px solid cyan;
+      padding: 8px;
+    }
+    #startMenu button {
+      cursor: pointer;
     }
   </style>
 </head>
@@ -111,6 +128,30 @@
       <div id="lrControls">
         <button id="leftButton">←</button>
         <button id="rightButton">→</button>
+      </div>
+    </div>
+    <div id="startMenu" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#0008;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:30;">
+      <div style="background:#111;padding:20px;border:2px solid cyan;">
+        <div style="margin-bottom:10px;">
+          <label for="hskSelect">HSK Level:</label>
+          <select id="hskSelect">
+            <option value="seq">Sequential</option>
+            <option value="1">HSK 1</option>
+            <option value="2">HSK 2</option>
+            <option value="3">HSK 3</option>
+          </select>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label for="posSelect">Part of Speech:</label>
+          <select id="posSelect">
+            <option value="all">All</option>
+            <option value="noun">Nouns</option>
+            <option value="verb">Verbs</option>
+            <option value="adjective">Adjectives</option>
+            <option value="pronoun">Pronouns</option>
+          </select>
+        </div>
+        <button id="startButton">Start</button>
       </div>
     </div>
   </div>
@@ -207,9 +248,6 @@
     let reloadSuccessMessage = "";
     let reloadSuccessTimer = 0;
 
-    // Use vocabulary from vocab.js
-    const ankiWords = hanziWordsArray; // Assuming hanziWordsArray is defined in vocab.js
-
     // NEW: Variables for win condition and counter
     let correctWordsCount = 0;
     let totalWordsInSet = 0;
@@ -220,6 +258,10 @@
     canvasElement.tabIndex = 0;
     const context = canvasElement.getContext("2d");
     const inputBox = document.getElementById("pinyinInput");
+    const startMenu = document.getElementById("startMenu");
+    const hskSelect = document.getElementById("hskSelect");
+    const posSelect = document.getElementById("posSelect");
+    const startButton = document.getElementById("startButton");
     window.onload = () => { canvasElement.focus(); };
 
     const keys = {};
@@ -233,7 +275,23 @@
     let reloadAttempts = 0;
     let autoAcceptShown = false;
 
+    let sequentialHSK = false;
+    let currentHSKLevel = 1;
+    let selectedPOS = "all";
+    let awaitingNextHSK = false;
     // When a bullet hits an enemy, record that enemy.
+    function startGameFromMenu() {
+      const sel = hskSelect.value;
+      selectedPOS = posSelect.value;
+      sequentialHSK = (sel === "seq");
+      currentHSKLevel = sequentialHSK ? 1 : parseInt(sel, 10);
+      hanziWordsArray = getVocab(currentHSKLevel, selectedPOS);
+      startMenu.style.display = "none";
+      resetGame();
+      createInvaders();
+      gameStarted = true;
+      canvasElement.focus();
+    }
     function recordHitEnemy(enemy) {
       lastHitEnemy = enemy;
     }
@@ -375,7 +433,6 @@
       context.textAlign = "left";
     }
 
-    // THIS FUNCTION IS THE ONLY ONE MODIFIED FROM THE PREVIOUS FULL CODEBLOCK
     function drawUI() {
       context.fillStyle = "cyan";
       context.font = "16px 'Press Start 2P', cursive";
@@ -530,25 +587,6 @@
       }
     }
 
-    function computeLowestRow() { // This function seems less used now, selectReloadEnemy is more direct
-      let lowest = -1;
-      let lowestY = -1;
-      invaders.forEach(inv => {
-          if (!inv.hit && inv.y > lowestY) {
-              lowestY = inv.y;
-          }
-      });
-      const lowestInvaders = invaders.filter(inv => !inv.hit && inv.y === lowestY);
-      if (lowestInvaders.length > 0) return lowestInvaders[Math.floor(Math.random() * lowestInvaders.length)];
-      
-      const availableInvaders = invaders.filter(inv => !inv.hit);
-      if (availableInvaders.length > 0) {
-        availableInvaders.sort((a,b) => b.y - a.y || Math.random() - 0.5); 
-        return availableInvaders[0];
-      }
-      return null;
-    }
-
     function selectReloadEnemy() {
       if (lastHitEnemy && !lastHitEnemy.hit && invaders.includes(lastHitEnemy)) { 
         return lastHitEnemy;
@@ -628,10 +666,6 @@
       context.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
       if (!gameStarted) {
-        context.fillStyle = "cyan";
-        context.font = "20px 'Press Start 2P', cursive";
-        context.textAlign = "center";
-        context.fillText("Press ENTER (or A) to Start", canvasElement.width / 2, canvasElement.height / 2);
         requestAnimationFrame(update);
         return;
       }
@@ -641,11 +675,17 @@
         context.fillStyle = "gold";
         context.font = "24px 'Press Start 2P', cursive";
         context.textAlign = "center";
-        wrapText(context, "!!! YOU WIN !!!", canvasElement.width / 2, canvasElement.height / 2 - 60, canvasElement.width - 40, 30);
-        context.font = "20px 'Press Start 2P', cursive";
-        wrapText(context, "All Hanzi Mastered!", canvasElement.width / 2, canvasElement.height / 2 - 10, canvasElement.width - 40, 26);
-        wrapText(context, `Final Score: ${score}`, canvasElement.width / 2, canvasElement.height / 2 + 30, canvasElement.width - 40, 26);
-        wrapText(context, "Press ENTER (or A) to Play Again", canvasElement.width / 2, canvasElement.height / 2 + 70, canvasElement.width - 40, 26);
+        if (sequentialHSK && currentHSKLevel < 3) {
+          wrapText(context, `HSK ${currentHSKLevel} Complete!`, canvasElement.width / 2, canvasElement.height / 2 - 20, canvasElement.width - 40, 26);
+          wrapText(context, "Press ENTER to continue", canvasElement.width / 2, canvasElement.height / 2 + 20, canvasElement.width - 40, 26);
+          awaitingNextHSK = true;
+        } else {
+          wrapText(context, "!!! YOU WIN !!!", canvasElement.width / 2, canvasElement.height / 2 - 60, canvasElement.width - 40, 30);
+          context.font = "20px 'Press Start 2P', cursive";
+          wrapText(context, "All Hanzi Mastered!", canvasElement.width / 2, canvasElement.height / 2 - 10, canvasElement.width - 40, 26);
+          wrapText(context, `Final Score: ${score}`, canvasElement.width / 2, canvasElement.height / 2 + 30, canvasElement.width - 40, 26);
+          wrapText(context, "Press ENTER (or A) to Play Again", canvasElement.width / 2, canvasElement.height / 2 + 70, canvasElement.width - 40, 26);
+        }
         requestAnimationFrame(update);
         return;
       }
@@ -757,22 +797,23 @@
     function handleEnterAction() {
         if (audioCtx.state === "suspended") { audioCtx.resume(); }
 
-        if (gameWon) {
-            resetGame(); 
+        if (awaitingNextHSK) {
+            awaitingNextHSK = false;
+            currentHSKLevel++;
+            hanziWordsArray = getVocab(currentHSKLevel, selectedPOS);
+            resetGame();
             createInvaders();
             gameStarted = true;
             canvasElement.focus();
+        } else if (gameWon) {
+            startMenu.style.display = "flex";
+            gameStarted = false;
         } else if (gameOver) {
-            resetGame(); 
-            createInvaders();
-            gameStarted = true;
-            canvasElement.focus();
+            startMenu.style.display = "flex";
+            gameStarted = false;
         } else if (!gameStarted) {
-            resetGame(); 
-            createInvaders();
-            gameStarted = true;
-            canvasElement.focus();
-        } else if (!pausedForReload) { 
+            startGameFromMenu();
+        } else if (!pausedForReload) {
             shoot();
         }
     }
@@ -822,6 +863,7 @@
     addControlListeners(document.getElementById("leftButton"), "ArrowLeft");
     addControlListeners(document.getElementById("rightButton"), "ArrowRight");
     addControlListeners(document.getElementById("aButton"), "Enter"); 
+    startButton.addEventListener("click", startGameFromMenu);
 
     document.addEventListener("keydown", (event) => {
       if (!pausedForReload || gameOver || gameWon) {
