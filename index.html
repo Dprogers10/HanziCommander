@@ -70,6 +70,7 @@
         box-sizing: border-box;
         z-index: 20;
         align-items: center;
+        justify-content: space-between; /* Adjusted for better layout */
       }
       #aButton {
         margin-right: auto;
@@ -110,6 +111,7 @@
       color: cyan;
       border: 2px solid cyan;
       border-radius: 4px;
+      cursor: pointer; /* Added for better UX */
     }
 
     #highScoresOverlay {
@@ -118,7 +120,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.8);
       display: none;
       flex-direction: column;
       justify-content: center;
@@ -129,10 +131,11 @@
     #highScoresOverlay ol {
       list-style: none;
       padding: 0;
-      margin: 0 0 10px 0;
+      margin: 0 0 20px 0;
       color: cyan;
       font-family: 'Press Start 2P', cursive;
       font-size: 16px;
+      text-align: center;
     }
   </style>
 </head>
@@ -148,7 +151,7 @@
         <button id="rightButton">→</button>
       </div>
     </div>
-    <div id="startMenu" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#0008;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:30;">
+    <div id="startMenu" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:30;">
       <div style="background:#111;padding:20px;border:2px solid cyan;">
         <div style="margin-bottom:10px;">
           <label for="hskSelect">HSK Level:</label>
@@ -190,24 +193,37 @@
   <script src="high_scores.js"></script>
 
   <script>
-    // Create a single shared AudioContext.
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // ** iOS FIX: Declare AudioContext but do not initialize it until user interaction. **
+    let audioCtx;
+
+    // Function to initialize audio context on demand.
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        // Attempt to resume the context if it's suspended, which is common on mobile.
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
 
     // Simple shoot sound: a short square wave beep.
     function playShootSound() {
+      if (!audioCtx) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'square';
-      osc.frequency.value = 440; // A4 note
-      gain.gain.value = 0.033;   // Reduced volume (a third quieter)
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 note
+      gain.gain.setValueAtTime(0.033, audioCtx.currentTime);   // Reduced volume
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start();
-      setTimeout(() => osc.stop(), 100);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.1);
     }
 
     // Simple explosion sound: burst of white noise with decay.
     function playExplosionSound() {
+      if (!audioCtx) return;
       const bufferSize = audioCtx.sampleRate * 0.2; // 0.2 second buffer
       const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -217,26 +233,25 @@
       const noise = audioCtx.createBufferSource();
       noise.buffer = buffer;
       const gain = audioCtx.createGain();
-      gain.gain.value = 0.033;   // Reduced volume
+      gain.gain.setValueAtTime(0.033, audioCtx.currentTime);   // Reduced volume
       noise.connect(gain);
       gain.connect(audioCtx.destination);
-      noise.start();
+      noise.start(audioCtx.currentTime);
     }
 
     // Simple reload sound: an ascending sawtooth chirp.
     function playReloadSound() {
+      if (!audioCtx) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sawtooth';
-      osc.frequency.value = 300; // Start frequency
-      gain.gain.value = 0.033;   // Reduced volume
+      gain.gain.setValueAtTime(0.033, audioCtx.currentTime);   // Reduced volume
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start();
-      let now = audioCtx.currentTime;
-      osc.frequency.setValueAtTime(300, now);
-      osc.frequency.linearRampToValueAtTime(600, now + 0.3);
-      setTimeout(() => osc.stop(), 300);
+      osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+      osc.frequency.linearRampToValueAtTime(600, audioCtx.currentTime + 0.3);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.3);
     }
   </script>
 
@@ -244,15 +259,15 @@
     // Helper: Wrap text into multiple lines if it exceeds maxWidth.
     function wrapText(context, text, x, y, maxWidth, lineHeight) {
       let words = text.split(' ');
-      if (words.length === 1 && text.length > 1 && !text.includes(' ')) { // Check if it might be Chinese text without spaces
-        if (/[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text)) { // Check for CJK characters
+      if (words.length === 1 && text.length > 1 && !text.includes(' ')) {
+        if (/[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text)) {
             words = text.split('');
         }
       }
       let line = '';
       let lines = [];
       for (let i = 0; i < words.length; i++) {
-        let testLine = (line === '' ? '' : line + (text.includes(' ') ? ' ' : '')) + words[i]; // Add space only if original text had them
+        let testLine = (line === '' ? '' : line + (text.includes(' ') ? ' ' : '')) + words[i];
         if (context.measureText(testLine).width > maxWidth && line !== '') {
           lines.push(line);
           line = words[i];
@@ -267,26 +282,13 @@
       }
     }
 
-    // Global variables for reload target management.
-    let lastHitEnemy = null;       // The enemy that was last hit.
-    let reloadEnemy = null;        // The enemy to ask for pinyin during reload.
-    let failedReloadEnemy = null;  // Enemy to recur in the next round if not answered correctly.
-
-    // Other globals.
-    let enemyBombs = [];
-    let barriers = [];
-    let bombCooldown = 0;
-    let reloadSuccessMessage = "";
-    let reloadSuccessTimer = 0;
-
-    // Use vocabulary from vocab.js
-    const ankiWords = hanziWordsArray; // Assuming hanziWordsArray is defined in vocab.js
-
-    // NEW: Variables for win condition and counter
-    let correctWordsCount = 0;
-    let totalWordsInSet = 0;
-    let correctlyAnsweredWords = new Set(); // To store unique hanzi of correctly answered words
-    let gameWon = false; // New game state for winning
+    // Global variables
+    let lastHitEnemy = null, reloadEnemy = null, failedReloadEnemy = null;
+    let enemyBombs = [], barriers = [];
+    let bombCooldown = 0, reloadSuccessMessage = "", reloadSuccessTimer = 0;
+    let correctWordsCount = 0, totalWordsInSet = 0;
+    let correctlyAnsweredWords = new Set();
+    let gameWon = false;
 
     const canvasElement = document.getElementById("gameCanvas");
     canvasElement.tabIndex = 0;
@@ -312,20 +314,10 @@
     let scoreRecorded = false;
 
     const keys = {};
-
     let player, bullets, invaders, ammo, score, gameOver, level, enemySpeed, direction, gameStarted;
-    let pausedForReload = false;
-    let expectedPinyinValue = "";
-    let expectedEnglishValue = "";
-    let reloadRow = null;
-    let reloadHanziValue = "";
-    let reloadAttempts = 0;
-    let autoAcceptShown = false;
-
-    let sequentialHSK = false;
-    let currentHSKLevel = 1;
-    let selectedPOS = "all";
-    let awaitingNextHSK = false;
+    let pausedForReload = false, expectedPinyinValue = "", expectedEnglishValue = "";
+    let reloadRow = null, reloadHanziValue = "", reloadAttempts = 0, autoAcceptShown = false;
+    let sequentialHSK = false, currentHSKLevel = 1, selectedPOS = "all", awaitingNextHSK = false;
 
     function renderHighScores() {
       scoreList.innerHTML = "";
@@ -357,19 +349,20 @@
       highScores = highScores.slice(0,10);
       saveScores();
       renderHighScores();
-      downloadScores();
+      // downloadScores(); // Optional: can be annoying for users
     }
 
     function recordScore() {
       if (scoreRecorded) return;
-      const name = prompt("Name?", "AAA");
+      const name = prompt("Enter Your Name (3 chars):", "AAA");
       if (name) {
-        addHighScore(name.substring(0,10), score);
+        addHighScore(name.substring(0,3).toUpperCase(), score);
       }
       scoreRecorded = true;
     }
-    // When a bullet hits an enemy, record that enemy.
+
     function startGameFromMenu() {
+      initAudio(); // Initialize audio on game start
       const sel = hskSelect.value;
       selectedPOS = posSelect.value;
       sequentialHSK = (sel === "seq");
@@ -382,6 +375,7 @@
       gameStarted = true;
       canvasElement.focus();
     }
+
     function recordHitEnemy(enemy) {
       lastHitEnemy = enemy;
     }
@@ -393,11 +387,10 @@
       enemyBombs = [];
       score = 0;
       gameOver = false;
-      gameWon = false; // NEW: Reset win state
+      gameWon = false;
       level = 1;
       enemySpeed = 0.2;
       direction = 1;
-      // gameStarted will be set by the start screen logic
       pausedForReload = false;
       expectedPinyinValue = "";
       expectedEnglishValue = "";
@@ -408,7 +401,7 @@
       reloadSuccessMessage = "";
       reloadSuccessTimer = 0;
       inputBox.style.display = "none";
-      inputBox.value = ""; // Clear input box
+      inputBox.value = "";
       ammo = 15;
       bombCooldown = 0;
       scoreRecorded = false;
@@ -420,26 +413,21 @@
       }
       lastHitEnemy = null;
       reloadEnemy = null;
-      // failedReloadEnemy is retained to recur next round.
 
-      // NEW: Reset correct words tracking
       correctWordsCount = 0;
       correctlyAnsweredWords.clear();
-      // Calculate total unique words (assuming 'word' property is the unique Hanzi identifier)
       if (typeof hanziWordsArray !== 'undefined' && hanziWordsArray.length > 0) {
         const uniqueWords = new Set(hanziWordsArray.map(item => item.word));
         totalWordsInSet = uniqueWords.size;
       } else {
-        totalWordsInSet = 0; // Handle case where vocab might be empty or undefined
-        console.warn("hanziWordsArray is empty or not defined. Win condition might not work as expected.");
+        totalWordsInSet = 0;
       }
     }
 
     function createInvaders() {
       invaders = [];
       if (typeof hanziWordsArray === 'undefined' || hanziWordsArray.length === 0) {
-          console.error("Cannot create invaders: hanziWordsArray is empty or not defined.");
-          gameOver = true; 
+          gameOver = true;
           return;
       }
       let rowWords = [];
@@ -458,12 +446,10 @@
                 rowWords.push(candidate);
             }
          }
-      } else { 
-          console.error("No words available to create invaders.");
+      } else {
           gameOver = true;
           return;
       }
-
 
       const rowColors = ["magenta", "yellow", "cyan"];
       for (let row = 0; row < 3; row++) {
@@ -524,27 +510,22 @@
       context.textAlign = "left";
     }
 
-    // THIS FUNCTION IS THE ONLY ONE MODIFIED FROM THE PREVIOUS FULL CODEBLOCK
     function drawUI() {
       context.fillStyle = "cyan";
       context.font = "16px 'Press Start 2P', cursive";
       context.textAlign = "left";
-      context.fillText(`Score: ${score}`, 20, 30); // Top-left
-
+      context.fillText(`Score: ${score}`, 20, 30);
       context.textAlign = "center";
-      context.fillText(`Level: ${level}`, canvasElement.width / 2, 30); // Top-center
-
-      context.textAlign = "left"; // Reset for ammo
-      context.fillText(`Ammo: ${ammo}`, 20, 50); // Second row - left
-
-      // Display Correct Words Counter - Y coordinate changed to 50
-      context.textAlign = "right"; // Align to the right
+      context.fillText(`Level: ${level}`, canvasElement.width / 2, 30);
+      context.textAlign = "left";
+      context.fillText(`Ammo: ${ammo}`, 20, 50);
+      context.textAlign = "right";
       if (totalWordsInSet > 0) {
-           context.fillText(`Correct: ${correctWordsCount}/${totalWordsInSet}`, canvasElement.width - 20, 50); // Second row - right
+           context.fillText(`Correct: ${correctWordsCount}/${totalWordsInSet}`, canvasElement.width - 20, 50);
       } else {
-           context.fillText(`Correct: ${correctWordsCount}/N/A`, canvasElement.width - 20, 50); // Second row - right
+           context.fillText(`Correct: ${correctWordsCount}/N/A`, canvasElement.width - 20, 50);
       }
-      context.textAlign = "left"; // Reset alignment for any subsequent text (if any)
+      context.textAlign = "left";
     }
 
     function shoot() {
@@ -564,13 +545,13 @@
           if (!invader.hit &&
               bullet.x < right &&
               bullet.x + bullet.width > left &&
-              bullet.y < invader.y + invader.height && 
-              bullet.y + bullet.height > invader.y - invader.height/2) { 
+              bullet.y < invader.y + invader.height &&
+              bullet.y + bullet.height > invader.y - invader.height/2) {
             invader.hit = true;
             invader.hitTimer = 60;
             bullet.active = false;
-            recordHitEnemy(invader); 
-            score += 5; 
+            recordHitEnemy(invader);
+            score += 5;
             playExplosionSound();
           }
         });
@@ -649,13 +630,12 @@
           context.fillRect(barrier.x, barrier.y, barrier.width, barrier.height);
         }
       });
-      barriers = barriers.filter(barrier => barrier.hp > 0); 
+      // It's often better to not filter here, just don't draw if hp is 0
     }
-
 
     function checkGameOver() {
       invaders.forEach(inv => {
-        if (!inv.hit && inv.y >= player.y - inv.height) { 
+        if (!inv.hit && inv.y >= player.y - inv.height) {
              gameOver = true;
         }
       });
@@ -665,7 +645,7 @@
       if (pausedForReload) return;
       let maxY = 0;
       invaders.forEach(inv => { if (inv.y > maxY) maxY = inv.y; });
-      let multiplier = 1 + (maxY - 50) / 200; 
+      let multiplier = 1 + (maxY - 50) / 200;
       let moveDown = false;
       invaders.forEach(invader => {
         invader.x += enemySpeed * multiplier * direction;
@@ -675,31 +655,12 @@
       });
       if (moveDown) {
         direction *= -1;
-        invaders.forEach(invader => { invader.y += 10 * multiplier; }); 
+        invaders.forEach(invader => { invader.y += 10 * multiplier; });
       }
-    }
-
-    function computeLowestRow() { // This function seems less used now, selectReloadEnemy is more direct
-      let lowest = -1;
-      let lowestY = -1;
-      invaders.forEach(inv => {
-          if (!inv.hit && inv.y > lowestY) {
-              lowestY = inv.y;
-          }
-      });
-      const lowestInvaders = invaders.filter(inv => !inv.hit && inv.y === lowestY);
-      if (lowestInvaders.length > 0) return lowestInvaders[Math.floor(Math.random() * lowestInvaders.length)];
-      
-      const availableInvaders = invaders.filter(inv => !inv.hit);
-      if (availableInvaders.length > 0) {
-        availableInvaders.sort((a,b) => b.y - a.y || Math.random() - 0.5); 
-        return availableInvaders[0];
-      }
-      return null;
     }
 
     function selectReloadEnemy() {
-      if (lastHitEnemy && !lastHitEnemy.hit && invaders.includes(lastHitEnemy)) { 
+      if (lastHitEnemy && !lastHitEnemy.hit && invaders.includes(lastHitEnemy)) {
         return lastHitEnemy;
       }
       let lowestNonHitInvader = null;
@@ -716,20 +677,20 @@
       if (availableInvaders.length > 0) {
         return availableInvaders[Math.floor(Math.random() * availableInvaders.length)];
       }
-      return null; 
+      return null;
     }
 
 
     function acceptReload() {
       let attempts = reloadAttempts;
-      let currentReloadEnemyWord = reloadHanziValue; 
+      let currentReloadEnemyWord = reloadHanziValue;
       let currentPinyin = expectedPinyinValue;
       let currentEnglish = expectedEnglishValue;
 
-      if (attempts < 3) { 
+      if (attempts < 3) {
         if (reloadEnemy) {
-            reloadEnemy.hit = true; 
-            reloadEnemy.hitTimer = 60; 
+            reloadEnemy.hit = true;
+            reloadEnemy.hitTimer = 60;
         }
         score += 10;
         if (!correctlyAnsweredWords.has(currentReloadEnemyWord)) {
@@ -737,15 +698,15 @@
           correctWordsCount++;
         }
         reloadSuccessMessage = `Correct! ${currentReloadEnemyWord} (${currentPinyin}) - ${currentEnglish}`;
-      } else { 
+      } else {
         if (reloadEnemy) {
-             failedReloadEnemy = reloadEnemy; 
+             failedReloadEnemy = reloadEnemy;
         }
         reloadSuccessMessage = `Answer: ${currentReloadEnemyWord} (${currentPinyin}) - ${currentEnglish}`;
       }
 
-      enemyBombs = []; 
-      bombCooldown = performance.now() + 1000; 
+      enemyBombs = [];
+      bombCooldown = performance.now() + 1000;
       ammo = 15;
       pausedForReload = false;
       reloadAttempts = 0;
@@ -769,8 +730,8 @@
       expectedPinyinValue = "";
       expectedEnglishValue = "";
       reloadHanziValue = "";
-      reloadEnemy = null; 
-      lastHitEnemy = null; 
+      reloadEnemy = null;
+      lastHitEnemy = null;
     }
 
     function update() {
@@ -813,17 +774,17 @@
         return;
       }
 
-      if (ammo === 0 && !pausedForReload && invaders.filter(inv => !inv.hit).length > 0) { 
+      if (ammo === 0 && !pausedForReload && invaders.filter(inv => !inv.hit).length > 0) {
         pausedForReload = true;
-        reloadEnemy = selectReloadEnemy(); 
+        reloadEnemy = selectReloadEnemy();
         if (reloadEnemy) {
-          expectedPinyinValue = reloadEnemy.pinyin.toLowerCase(); 
+          expectedPinyinValue = reloadEnemy.pinyin.toLowerCase();
           expectedEnglishValue = reloadEnemy.english;
           reloadHanziValue = reloadEnemy.word;
           inputBox.style.display = "block";
           inputBox.focus();
         } else {
-          ammo = 5; 
+          ammo = 5;
           pausedForReload = false;
         }
         reloadAttempts = 0;
@@ -833,14 +794,14 @@
 
       if (pausedForReload) {
         drawPlayer();
-        drawBullets(); 
-        drawInvaders(); 
-        drawBarriers(); 
-        drawUI();       
+        drawBullets();
+        drawInvaders();
+        drawBarriers();
+        drawUI();
         context.fillStyle = "yellow";
         context.textAlign = "center";
         context.font = "20px 'Press Start 2P', cursive";
-        if (reloadHanziValue) { 
+        if (reloadHanziValue) {
              wrapText(context, "RELOAD: Type pinyin for", canvasElement.width / 2, canvasElement.height / 2 - 30, canvasElement.width - 40, 24);
              context.font = "30px 'Press Start 2P', cursive";
              context.fillText(reloadHanziValue, canvasElement.width / 2, canvasElement.height / 2 + 10);
@@ -853,7 +814,7 @@
 
       if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
       if (keys["ArrowRight"] && player.x < canvasElement.width - player.width) player.x += player.speed;
-      
+
       drawPlayer();
       drawBullets();
       drawInvaders();
@@ -868,22 +829,22 @@
       drawBombs();
       drawBarriers();
 
-      checkGameOver(); 
+      checkGameOver();
 
-      if (!gameOver && invaders.length === 0 && !pausedForReload) { 
+      if (!gameOver && invaders.length === 0 && !pausedForReload) {
         level++;
         enemySpeed += 0.01;
-        enemyBombs = []; 
-        createInvaders(); 
+        enemyBombs = [];
+        createInvaders();
       }
 
 
       if (reloadSuccessMessage !== "") {
         let now = performance.now();
-        if (now - reloadSuccessTimer < 2000) { 
+        if (now - reloadSuccessTimer < 2000) {
           context.fillStyle = "lightgreen";
-          let fontSize = Math.min(20, Math.floor((canvasElement.width - 40) / reloadSuccessMessage.length * 1.2)); 
-          fontSize = Math.max(10, fontSize); 
+          let fontSize = Math.min(20, Math.floor((canvasElement.width - 40) / reloadSuccessMessage.length * 1.2));
+          fontSize = Math.max(10, fontSize);
           context.font = fontSize + "px 'Press Start 2P', cursive";
           context.textAlign = "center";
           let maxWidth = canvasElement.width - 40;
@@ -898,7 +859,7 @@
         if (availableInvaders.length > 0 && Math.random() < (0.005 + Math.min((Math.max(0, (Math.max(...availableInvaders.map(inv => inv.y)) - 50) / 350)), 1) * 0.015)) {
           let dropper = availableInvaders[Math.floor(Math.random() * availableInvaders.length)];
           enemyBombs.push({ x: dropper.x, y: dropper.y + 20, width: 5, height: 10, speed: 2 + level * 0.1 });
-          bombCooldown = performance.now() + Math.max(200, 1000 - level * 50); 
+          bombCooldown = performance.now() + Math.max(200, 1000 - level * 50);
         }
       }
 
@@ -906,7 +867,7 @@
     }
 
     function handleEnterAction() {
-        if (audioCtx.state === "suspended") { audioCtx.resume(); }
+        initAudio(); // Ensure audio is ready for any action
 
         if (awaitingNextHSK) {
             awaitingNextHSK = false;
@@ -932,44 +893,43 @@
     }
 
 
+    // ** FIX: This function now triggers actions on release for better UX and visual feedback. **
     function addControlListeners(btn, keyName) {
-      btn.addEventListener("pointerdown", function(e) {
-        e.preventDefault(); 
-        btn.classList.add("active");
-        keys[keyName] = true;
-        if (keyName === "Enter") {
-          handleEnterAction();
-        }
-      });
-      btn.addEventListener("pointerup", function(e) {
+      function onDown(e) {
         e.preventDefault();
+        btn.classList.add("active"); // Add highlight on press
+        keys[keyName] = true;
+      }
+
+      function onUp(e) {
+        e.preventDefault();
+        // Only fire the action on release if the button was actually active (i.e., finger didn't slide off)
+        if (btn.classList.contains('active')) {
+            if (keyName === "Enter") {
+                handleEnterAction();
+            }
+        }
+        btn.classList.remove("active"); // Remove highlight
+        keys[keyName] = false;
+      }
+      
+      function onLeave(e) {
+        e.preventDefault();
+        // When finger slides off, just deactivate the button without triggering the action.
         btn.classList.remove("active");
         keys[keyName] = false;
-      });
-      btn.addEventListener("touchstart", function(e) {
-        e.preventDefault();
-        btn.classList.add("active");
-        keys[keyName] = true;
-        if (keyName === "Enter") {
-          handleEnterAction();
-        }
-      });
-      btn.addEventListener("touchend", function(e) {
-        e.preventDefault();
-        btn.classList.remove("active");
-        keys[keyName] = false;
-      });
-      btn.addEventListener("mousedown", function(e) {
-        btn.classList.add("active");
-        keys[keyName] = true; 
-        if (keyName === "Enter") {
-          handleEnterAction(); 
-        }
-      });
-      btn.addEventListener("mouseup", function(e) {
-        btn.classList.remove("active");
-        keys[keyName] = false; 
-      });
+      }
+
+      // Use pointer events for modern browsers (touch, mouse, stylus)
+      btn.addEventListener("pointerdown", onDown);
+      btn.addEventListener("pointerup", onUp);
+      btn.addEventListener("pointerleave", onLeave);
+
+      // Fallbacks for older browsers
+      btn.addEventListener("touchstart", onDown, { passive: false });
+      btn.addEventListener("touchend", onUp, { passive: false });
+      btn.addEventListener("mousedown", onDown);
+      btn.addEventListener("mouseup", onUp);
     }
 
 
@@ -991,9 +951,9 @@
         }
         handleEnterAction();
       }
-      if (event.key === " " && !pausedForReload && gameStarted && !gameOver && !gameWon) { 
+      if (event.key === " " && !pausedForReload && gameStarted && !gameOver && !gameWon) {
         shoot();
-        event.preventDefault(); 
+        event.preventDefault();
       }
     });
 
@@ -1003,37 +963,35 @@
 
     inputBox.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && pausedForReload) {
-        event.preventDefault(); 
+        event.preventDefault();
         let typed = inputBox.value.trim().toLowerCase();
-        if (typed === expectedPinyinValue) { 
+        if (typed === expectedPinyinValue) {
           acceptReload();
         } else {
           reloadAttempts++;
-          score = Math.max(0, score - 5); 
+          score = Math.max(0, score - 5);
 
-          if (reloadEnemy && invaders.includes(reloadEnemy) && !reloadEnemy.hit) {
-            // Target is still valid
-          } else { 
+          if (!reloadEnemy || !invaders.includes(reloadEnemy) || reloadEnemy.hit) {
             let newTarget = selectReloadEnemy();
             if (newTarget) {
                 reloadEnemy = newTarget;
                 expectedPinyinValue = newTarget.pinyin.toLowerCase();
                 expectedEnglishValue = newTarget.english;
                 reloadHanziValue = newTarget.word;
-            } else { 
-                pausedForReload = false; 
+            } else {
+                pausedForReload = false;
                 inputBox.style.display = "none";
-                ammo = 5; 
+                ammo = 5;
                 return;
             }
           }
 
           if (reloadAttempts >= 3 && !autoAcceptShown) {
-            score = Math.max(0, score - 15); 
-            autoAcceptShown = true; 
+            score = Math.max(0, score - 15);
+            autoAcceptShown = true;
             acceptReload();
           } else if (reloadAttempts < 3) {
-            inputBox.value = ""; 
+            inputBox.value = "";
             inputBox.style.borderColor = "red";
             setTimeout(() => { inputBox.style.borderColor = "cyan"; }, 200);
           }
@@ -1041,8 +999,8 @@
       }
     });
 
-    resetGame(); 
-    update();    
+    resetGame();
+    update();
   </script>
 </body>
 </html>
